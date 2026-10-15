@@ -1,0 +1,55 @@
+name: Retry Oracle Free Tier VM Creation
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+  actions: write
+
+jobs:
+  try-create:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install OCI SDK
+        run: pip install oci
+
+      - name: Attempt instance creation
+        id: attempt
+        env:
+          OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+          OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
+          OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+          OCI_REGION: ${{ secrets.OCI_REGION }}
+          OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+          OCI_COMPARTMENT_OCID: ${{ secrets.OCI_COMPARTMENT_OCID }}
+          OCI_AVAILABILITY_DOMAIN: ${{ secrets.OCI_AVAILABILITY_DOMAIN }}
+          OCI_SUBNET_OCID: ${{ secrets.OCI_SUBNET_OCID }}
+          OCI_IMAGE_OCID: ${{ secrets.OCI_IMAGE_OCID }}
+          OCI_SSH_PUBLIC_KEY: ${{ secrets.OCI_SSH_PUBLIC_KEY }}
+        run: python scripts/create_instance.py
+
+      - name: Disable this schedule now that the VM exists
+        if: steps.attempt.outputs.created == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow disable "Retry Oracle Free Tier VM Creation"
+
+      - name: Open an issue announcing success
+        if: steps.attempt.outputs.created == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INSTANCE_ID: ${{ steps.attempt.outputs.instance_id }}
+        run: |
+          gh issue create \
+            --title "Your Oracle VM is ready" \
+            --body "Instance created: ${INSTANCE_ID}. Open the Oracle Cloud console (Compute > Instances) to find its public IP address and connect over SSH with the private key you downloaded earlier. This workflow has now disabled itself."
